@@ -292,14 +292,23 @@ public class JdkHttpClient implements HttpClient {
                     }
                     tube.send(new HttpResponseReceived(fromJdkResponse(jdkResponse, null)));
 
-                    ServerSentEventParser.Incremental incremental = parser.incremental();
                     jdkResponse.body().subscribe(new Subscriber<>() {
+
+                        private ServerSentEventParser.Incremental incremental;
 
                         @Override
                         public void onSubscribe(Subscription subscription) {
                             bodySubRef.set(subscription);
                             if (tube.cancelled()) {
                                 subscription.cancel();
+                                return;
+                            }
+                            try {
+                                // Register the body subscription first so terminal cleanup can cancel it
+                                // even when the parser cannot initialize (e.g. a blocking-only parser).
+                                incremental = parser.incremental();
+                            } catch (Exception e) {
+                                if (!tube.cancelled()) tube.fail(e);
                                 return;
                             }
                             // Unbounded demand on purpose. The JDK client's demand maps to TCP / HTTP-2 flow
